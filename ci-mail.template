@@ -1,0 +1,824 @@
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+<%
+	import java.net.URI;
+	import org.apache.http.client.utils.URIBuilder;
+	import com.ibm.team.build.internal.hjplugin.RTCScm;
+	import com.ibm.team.build.internal.hjplugin.RTCChangeLogChangeSetEntry;
+	import groovy.json.JsonSlurper;
+	import groovy.json.StreamingJsonBuilder;
+	import hudson.scm.SubversionSCM;
+	import hudson.plugins.git.GitSCM;
+	import hudson.*;
+
+	def isDebug = false
+	EnvVars envVars = build.getEnvironment(listener)
+	def project = build.project;
+	def jobName = project.name;
+	def scm = project.scm;
+	def scmDisplayName = scm.descriptor.displayName
+	def timeStamp = (build.getTime()).format("EEE, dd MMM yyyy HH:mm:ss (Z)",TimeZone.getTimeZone("Asia/Hong_Kong"))
+	def buildOn
+	if(build instanceof hudson.model.AbstractBuild){ //ancestor of FreeStyleBuild
+		buildOn = build.getBuiltOnStr()
+		if(buildOn == null || buildOn.isEmpty()){
+			buildOn = "master"
+		}
+	}
+	def headerColor
+	switch(build.result){
+		case "SUCCESS" :
+			headerColor = "#009688"
+			break
+		case "FAILURE" :
+			headerColor = "#F44336"
+			break
+		case "UNSTABLE" :
+			headerColor = "#EF6C00"
+			break
+		default :
+			headerColor = "#757575"
+	}
+	try{ //failover try block
+%>
+  <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+  <title>Build Report</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+</head>
+<body style="margin: 0; padding: 0;">
+  <!--[if mso]>
+  <style type="text/css">
+  body, table, ul, li {font-family: Arial, Helvetica, sans-serif !important;}
+  th, td {font-family: Arial, Helvetica, sans-serif !important; font-size: 12px;}
+  </style>
+  <![endif]-->
+  <table border="0" cellpadding="0" cellspacing="0" width="100%">
+    <tr>
+      <td>
+        <table align="center" cellpadding="0" cellspacing="0" style="border: 1px solid #cccccc;">
+         <tr>
+          <td align="left" bgcolor="${headerColor}" style="font-family: Arial, sans-serif; font-size: 24px; padding: 20px 20px 15px 20px; color: white" >
+             <b>${jobName} - ${build.displayName} : ${build.result}</b>
+          </td>
+         </tr>
+         <tr>
+          <td bgcolor="#ffffff" style="padding: 40px 30px 40px 30px;">
+           <table border="0" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+             <td style="color: #153643; font-family: Arial, sans-serif;">
+               <table border="0" style="font-size:12px;">
+                 <tr><td colspan="3" style="font-size: 16px;"><b><u>Build Information</u></b></td></tr>
+                 <tr>
+                   <td>Build URL</td>
+                   <td>:</td>
+                   <td><a href="${rooturl}${build.url}">${build.url.replaceAll('job/','').replaceAll('%252F','/')}</a></td>
+                 </tr>
+                 <tr>
+                   <td>Build TimeStamp</td>
+                   <td>:</td>
+                   <td>${timeStamp}</td>
+                 </tr>
+                 <tr>
+                   <td>Build Duration</td>
+                   <td>:</td>
+                   <td>${build.durationString}</td>
+                 </tr>
+                 <tr>
+                   <td>Build On</td>
+                   <td>:</td>
+                   <td>${buildOn}</td>
+                 </tr>
+                 <tr>
+                   <td>Build Cause</td>
+                   <td>:</td>
+                   <td>${build.causes.shortDescription}</td>
+                 </tr>
+               </table>
+              </td>
+            </tr>
+            <tr><td>&nbsp;</td></tr>
+            <tr>
+             <td style="color: #153643; font-family: Arial, sans-serif;">
+               <table border="0" style="font-size:12px;">
+                 <tr><td colspan="3" style="font-size: 16px;"><b><u>SCM Information</u></b></td></tr>
+                 <tr>
+                   <td>SCM</td>
+                   <td>:</td>
+                   <td>${scmDisplayName}</td>
+                 </tr>
+				<%
+					def buildDefinition = "N/A"
+					def buildWorkspace = "N/A"
+					/*
+					 * Plugin compatibility : teamconcert-1.2.0.1
+					 */
+					if(scm instanceof RTCScm) {
+						buildDefinition = scm.buildDefinition==null?"N/A":scm.buildDefinition
+						buildWorkspace = scm.buildWorkspace==null?"N/A":scm.buildWorkspace
+						def streams =  []
+						if(scm.buildDefinition != null || scm.buildWorkspace != null){
+							url = uriBuilder.build().toURL()
+							def conn =  url.openConnection()
+							conn.requestMethod = "GET"
+							conn.setRequestProperty("Content-Type", "application/json;charset=UTF-8")
+							def inputStream = conn.getInputStream()
+							def jsonResponse = inputStream.getText()
+							def jsonResult = new JsonSlurper().parseText(jsonResponse)
+							def flowTargets = []
+							if(scm.buildDefinition != null){
+								buildWorkspace = jsonResult.workspace.name
+								flowTargets = jsonResult.workspace.flowTargets
+							}else{
+								flowTargets = jsonResult[0].flowTargets
+							}
+							flowTargets.each { flowTarget ->
+								if(flowTarget.stream){
+									streams << flowTarget.name
+								}
+							}
+							conn.disconnect()
+						} else if(scm.buildStream != null){
+							streams << scm.buildStream
+						}
+						if(scm.buildDefinition != null) {
+				%>
+					<tr>
+						<td>Build Definition</td>
+						<td>:</td>
+						<td>${buildDefinition}</td>
+					</tr>
+				<%
+						} //ENCLOSED BuildDefinitionType
+						if(buildWorkspace != "N/A"){
+				%>
+					<tr>
+						<td>Repo Workspace</td>
+						<td>:</td>
+						<td>${buildWorkspace}</td>
+					</tr>
+				<%
+						} //ENCLOSED buildWorkspace
+						if(streams != null && streams.size > 0){
+				%>
+					<tr>
+						<td>Stream Flow</td>
+						<td>:</td>
+						<td>${streams}</td>
+					</tr>
+				<%
+						} //ENCLOSED streams
+						if(scm.buildSnapshot != null){
+				%>
+					<tr>
+						<td>Snapshot</td>
+						<td>:</td>
+						<td>${scm.buildSnapshot}</td>
+					</tr>
+				<%
+						} //ENCLOSED buildSnapshot
+					} //ENCLOSED RTCScm
+					
+					/*
+					 * Plugin compatibility : subversion-2.6
+					 */
+					if(scm instanceof SubversionSCM){
+						def svnRevision = envVars.get("SVN_REVISION")
+						def svnURL = envVars.get("SVN_URL")
+				%>
+					<tr>
+						<td>SVN URL</td>
+						<td>:</td>
+						<td><a href="${svnURL}">${svnURL}</a></td>
+					</tr>
+					<tr>
+						<td>SVN Revision</td>
+						<td>:</td>
+						<td>${svnRevision}</td>
+					</tr>
+				<%
+					} //ENCLOSED SubversionSCM
+					/*
+					 * Plugin compatibility : git-3.0.0
+					 */
+					if(scm instanceof GitSCM){
+						def gitURL = envVars.get("GIT_URL")
+						def gitBranch = envVars.get("GIT_BRANCH")
+						def gitCommit = envVars.get("GIT_COMMIT")
+						def gitCommitURL = "${gitURL}/commit/${gitCommit}"
+				%>
+					<tr>
+						<td>Git URL</td>
+						<td>:</td>
+						<td><a href="${gitURL}">${gitURL}</a></td>
+					</tr>
+					<tr>
+						<td>Git Branch</td>
+						<td>:</td>
+						<td>${gitBranch}</td>
+					</tr>
+					<tr>
+						<td>Git Commit</td>
+						<td>:</td>
+						<td><a href="${gitCommitURL}">${gitCommit}</a></td>
+					</tr>
+				<%
+					} //ENCLOSED GitSCM
+				 %>
+                 <tr>
+                   <td>SCM Committer</td>
+                   <td>:</td>
+                   <td>${build.culprits}</td>
+                 </tr>
+               </table>
+              </td>
+            </tr>
+            <tr><td>&nbsp;</td></tr>
+            <tr>
+              <td style="color: #153643; font-family: Arial, sans-serif;">
+				<% 
+					def changeSet = build.changeSet
+					if(changeSet != null) {
+						def hadChanges = false 
+				%>
+				<table border = "0" style="font-size:12px; border-collapse: collapse">
+					<tr><td style="font-size: 16px;"><b><u>ChangeSets</u></b></td></tr>
+				<%
+						changeSet.each() { cs ->
+							hadChanges = true
+				%>
+				<tr>
+					<td>
+						<ul style="margin: 0; padding-left : 2em;">
+							<li>
+							Revision <b><%= cs.metaClass.hasProperty('commitId') ? cs.commitId : cs.metaClass.hasProperty('revision') ? cs.revision : 
+							cs.metaClass.hasProperty('changeNumber') ? cs.changeNumber : "" %></b> by <b><%= cs.author %>: </b><br/>
+							<b>${cs.msgAnnotated}</b>
+							<ul style="margin: 0; padding-left : 2em;">
+				<%
+							def changes
+							def path
+							if(scm instanceof SubversionSCM){
+								changes = cs.getAffectedFiles()
+							}else{
+								changes = cs.getAffectedPaths()
+							}
+							if(changes != null && !changes.isEmpty()){
+								changes.eachWithIndex {change, changeIndex ->
+									if(changeIndex < 10){
+										if(scm instanceof SubversionSCM){
+											path = change.getPath()
+										}else{
+											path = change
+										}
+				%>
+								<li style="font-family: Courier, monospace;font-size: 11px;">${path}</li>
+				<%
+									}
+								}
+								if(changes.size() > 10){
+				%>
+								<li style="font-style:italic; font-size : 11px">... (${changes.size()} changes total)</li>
+				<%
+								}
+							}
+				%>
+							</ul>
+							</li>
+						</ul>
+					</td>
+				</tr>
+				<%
+						}
+						if(hadChanges){
+				%>
+						<tr><td><span style="font-weight: bold; margin-left: 10px;">[Total ChangeSet : <%= changeSet.items.length %>]</span></td></tr>
+				<%
+						}
+						else{
+				%>
+						<tr><td style="font-style:italic">(No Changes)</td></tr>
+				<%
+						}
+				%>
+				</table>
+				<%
+					}
+				%>
+              </td>
+            </tr>
+			<%
+				if(build.result==hudson.model.Result.FAILURE) {
+			%>
+			<tr><td>&nbsp;</td></tr>
+			<tr>
+				<td style="color: #153643; font-family: Arial, sans-serif;">
+				<table cellpadding="0" cellspacing="0" style="font-size:12px;">
+					<tr>
+						<td style="font-size: 16px;"><b><u>Console Log</u></b></td>
+					</tr>
+					<tr>
+						<td>
+							<table>
+								<tr>
+									<td>Full Console Log</td>
+									<td>:</td>
+									<td><a href="${rooturl}${build.url}console">link</a></td>
+							</table>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							<table style="background: #000; border: 2px groove #ccc; color: #ccc; display: block;">
+				<%
+					def logDisplayLimit = 30
+					def logTailTruncate = 5
+					def logLineStyle = "font-family: 'Courier New', monospace, Monaco, Consolas, Inconsolata, 'Liberation Mono', 'Lucida Console'; font-size: 10px;"
+					build.getLog(logDisplayLimit + logTailTruncate).eachWithIndex { line, lineIndex ->
+						if(lineIndex < logDisplayLimit){
+				%>
+								<tr>
+									<td style="${logLineStyle}">${org.apache.commons.lang.StringEscapeUtils.escapeHtml(line)}</td>
+								</tr>
+				<%
+						}
+					}
+				%>
+								<tr>
+									<td style="${logLineStyle}">[...truncated ${logTailTruncate} lines...]</td>
+								</tr>
+							</table>
+						</td>
+					</tr>
+				</table>
+			  </td>
+			</tr>
+			<%
+				}
+			%>
+            <tr><td>&nbsp;</td></tr>
+            <tr>
+             <td style="color: #153643; font-family: Arial, sans-serif;">
+               <table border="0" style="font-size:12px;">
+                  <tr><td style="font-size: 16px;"><b><u>SonarQube Scan Summary</u></b></td></tr>
+                  <tr>
+                  	<td>
+                  	<span style="font-size: 14px; font-weight:bold; font-style: italic;">New Issues</span>
+					<%
+						def reportJSON
+						def blockerIssueList
+						def criticalIssueList
+						def majorIssueList
+						def inStream
+						def comp
+						def resolveCount = 0
+						def totalCount = 0
+						def subTotalCount = 0
+						def reportFiles = build.workspace.list("**/sonar-report/**/sonar-report.json")
+						def totalIssueCount = [BLOCKER:0, CRITICAL:0, MAJOR:0, MINOR:0, INFO:0]
+						reportFiles.each { reportFile ->
+							comp = reportFile.parent.getName()
+							inStream = reportFile.read()
+							reportJSON = new JsonSlurper().parseText(inStream.getText())
+							blockerIssueList = []
+							criticalIssueList = []
+							majorIssueList = []
+							def subIssueCount = [BLOCKER:0, CRITICAL:0, MAJOR:0, MINOR:0, INFO:0]
+							subTotalCount = 0
+							reportJSON.issues.each{ issue ->
+								if(issue.isNew){
+									subTotalCount += 1
+									totalCount += 1
+									totalIssueCount[issue.severity] += 1
+									subIssueCount[issue.severity] += 1
+									switch(issue.severity){
+										case "BLOCKER" :
+											blockerIssueList << issue
+											break
+										case "CRITICAL" :
+											criticalIssueList << issue
+											break
+										case "MAJOR" :
+											majorIssueList << issue
+											break
+									}
+								}
+							}
+							inStream.close()
+							if(subTotalCount > 0){
+					%>
+						<ul style="margin: 0; padding-left : 2em;">
+							<li>
+								<span style="font-weight: bold;">${comp}</span>
+								<ul style="margin: 0; padding-left : 2em;">
+					<%
+									blockerIssueList.each{ newIssue ->
+										def tokens = newIssue.component.toString().split(":")
+										def chunks = tokens[-1].split("/")
+										def fileLocation = chunks[-1]
+										if(newIssue.line != null){
+											fileLocation = fileLocation + ":" + newIssue.line
+										}
+					%>
+									<li><span style="font-weight: bold; background-color: #D50000; color:white;">${newIssue.severity}</span> (${fileLocation}) - ${newIssue.message}</li>
+					<%
+									}
+									criticalIssueList.each{ newIssue ->
+										def tokens = newIssue.component.toString().split(":")
+										def chunks = tokens[-1].split("/")
+										def fileLocation = chunks[-1]
+										if(newIssue.line != null){
+											fileLocation = fileLocation + ":" + newIssue.line
+										}
+					%>
+									<li><span style="font-weight: bold; background-color: #F44336; color:white;">${newIssue.severity}</span> (${fileLocation}) - ${newIssue.message}</li>
+					<%
+									}
+									majorIssueList.each{ newIssue ->
+										def tokens = newIssue.component.toString().split(":")
+										def chunks = tokens[-1].split("/")
+										def fileLocation = chunks[-1]
+										if(newIssue.line != null){
+											fileLocation = fileLocation + ":" + newIssue.line
+										}
+					%>
+									<li><span style="font-weight: bold; background-color: #E57373; color:white;">${newIssue.severity}</span> (${fileLocation}) - ${newIssue.message}</li>
+					<%
+									}
+									if(subIssueCount["MINOR"]+subIssueCount["INFO"] > 0){
+					%>
+									<li><span style="font-style: italic;">... (MINOR : ${String.format("%,d", subIssueCount["MINOR"])}, INFO : ${String.format("%,d", subIssueCount["INFO"])})</span></li>
+					<%
+									}
+					%>
+								</ul>
+							</li>
+						</ul>
+						
+					<%
+							} //ENCLOSED subTotalCount
+						} //ENCLOSED reportFiles
+					%>
+						</td>
+					</tr>
+					<%
+							if(reportFiles.size() == 0){
+					%>
+					<tr>
+						<td><span style="font-size: 13px; font-style: italic;" >(No SonarQube report found)</span></td>
+					</tr>
+					<%
+							}else if(totalCount == 0){
+					%>
+					<tr>
+						<td><span style="font-size: 13px; font-style: italic;" >(No new issues)</span></td>
+					</tr>
+					<%
+							}
+							else{
+					%>
+					<tr>
+						<td><span style="font-size: 12px; font-style: italic; margin-left: 10px;">*only Blocker/Critical/Major issues shown, refer to dashboard link for full view</span></td>
+					</tr>
+					<tr>
+						<td><span style="margin-left: 10px;"><span style="font-size: 13px; font-weight: bold;" >[Total New Issues : ${String.format("%,d", totalCount)}]</span></span></td>
+					</tr>
+					<%
+							}
+					%>
+					<!-- <tr><td>&nbsp;</td></tr> -->
+					<tr>
+						<td><span style="margin-top: 10px; font-size: 14px; font-weight:bold; font-style: italic;">Current Dashboard</span></td>
+					</tr>
+					<%
+						def thStyle = "background-color: #90CAF9; color: black; border: 1px solid #cccccc; padding: 5px; text-align: left;"
+						def trStyle = "background-color: #fff;"
+						def tdStyle = "padding: 5px; text-align: left;border: 1px solid #cccccc; border-collapse: collapse;"
+						def tdMetricStyle = "padding: 5px; text-align: right;border: 1px solid #cccccc; border-collapse: collapse;"
+						try{
+							def sonarLinks = [:]
+							def sonarPattern = ~/.*ANALYSIS SUCCESSFUL.*/
+							build.logFile.eachLine{ line ->
+								matcher = sonarPattern.matcher(line)
+								if(matcher.matches()){
+									if(line.contains('http')){
+										link = line.substring(line.indexOf('http'))
+										key = link.substring(link.indexOf('/index/')+7).replaceAll('%2F','/') //SonarQube >5.6 support
+										if(!sonarLinks.containsKey(key)){
+											sonarLinks.put(key, link)
+										}
+									}
+								}
+							}
+							if(sonarLinks != null && sonarLinks.size() > 0){
+					%>
+					<tr>
+						<td>
+							<table style="border: 1px solid #cccccc; border-collapse: collapse;" id="tblSonarStat" >
+								<tr>
+									<th style="${thStyle}">Name</th>
+									<th style="${thStyle}">Version</th>
+									<th style="${thStyle}">Technical Debt</th>
+									<th style="${thStyle}">Blocker</th>
+									<th style="${thStyle}">Critical</th>
+									<th style="${thStyle}">Major</th>
+									<th style="${thStyle}">Minor</th>
+									<th style="${thStyle}">Info</th>
+									<th style="${thStyle}">Link</th>
+								</tr>
+					<%
+								def sonarDashboardURL, sonarHostURL, componentName, branch, version, techDebtMsr, blockerMsr, criticalMsr, majorMsr, minorMsr, infoMsr
+								sonarLinks.each { sonarLink ->
+									sonarDashboardURL = sonarLink.value.toString()
+									sonarHostURL = sonarDashboardURL.substring(0, sonarDashboardURL.indexOf('/dashboard/')+1)
+									URI sonarAPIURI = new URI(sonarHostURL)
+									URIBuilder uriBuilder = new URIBuilder(sonarAPIURI)
+									uriBuilder.setPath(uriBuilder.getPath() + "api/resources/index")
+									uriBuilder.addParameter("resource", sonarLink.key)
+									uriBuilder.addParameter("metrics", 'ncloc,violations_density,blocker_violations,critical_violations,major_violations,minor_violations,info_violations,sqale_index')
+									url = uriBuilder.build().toURL()
+									def conn = url.openConnection()
+									def inputStream = conn.getInputStream()
+									def jsonResponse = inputStream.getText()
+									def jsonResult = new JsonSlurper().parseText(jsonResponse)
+									jsonResult.eachWithIndex { dashboard, index ->
+										componentName = dashboard.name
+										branch = dashboard.branch
+										version = dashboard.version
+										techDebtMsr = dashboard.msr.find{
+											it.key == 'sqale_index'
+										}
+										blockerMsr = dashboard.msr.find{
+											it.key == 'blocker_violations'
+										}
+										criticalMsr = dashboard.msr.find{
+											it.key == 'critical_violations'
+										}
+										majorMsr = dashboard.msr.find{
+											it.key == 'major_violations'
+										}
+										minorMsr = dashboard.msr.find{
+											it.key == 'minor_violations'
+										}
+										infoMsr = dashboard.msr.find{
+											it.key == 'info_violations'
+										}
+										if(blockerMsr.val.intValue() > 0){
+											blockerStyle = "background-color: #D50000; font-weight: bold; color: white;"
+										}else{
+											blockerStyle = ""
+										}
+										if(criticalMsr.val.intValue() > 0){
+											criticalStyle = "background-color: #F44336; font-weight: bold; color: white;"
+										}else{
+											criticalStyle = ""
+										}
+										if(majorMsr.val.intValue() > 0){
+											majorStyle = "background-color: #E57373; font-weight: bold; color: white;"
+										}else{
+											majorStyle = ""
+										}
+					%>
+								<tr style="${trStyle}">
+									<td style ="${tdStyle}"><span style="font-weight: bold;">${componentName}</span></td>
+									<td style ="${tdStyle}">${version}</td>
+									<td style ="${tdMetricStyle}"><span style="font-weight: bold;">${techDebtMsr.frmt_val}</span></td>
+									<td style ="${tdMetricStyle}"><span style="${blockerStyle}">${String.format("%,d", blockerMsr.val.intValue())}</span></td>
+									<td style ="${tdMetricStyle}"><span style="${criticalStyle}">${String.format("%,d", criticalMsr.val.intValue())}</span></td>
+									<td style ="${tdMetricStyle}"><span style="${majorStyle}">${String.format("%,d", majorMsr.val.intValue())}</span></td>
+									<td style ="${tdMetricStyle}">${String.format("%,d", minorMsr.val.intValue())}</td>
+									<td style ="${tdMetricStyle}">${String.format("%,d", infoMsr.val.intValue())}</td>
+									<td style ="${tdStyle}"><a href="${sonarDashboardURL}" target="_blank">link</a></td>
+								</tr>
+					<%
+									} //ENCLOSED jsonResult
+								} //ENCLOSED sonarLink loop
+					%>
+							</table>
+						</td>
+					</tr>
+					<tr>
+						<td><span style="font-size: 12px; font-style: italic; margin-left: 5px;">*scan result processing in server might be delayed, refer to dashboard link for latest result</span></td>
+					</tr>
+					<%
+							} else{ //ENCLOSED sonarLinks
+					%>
+					<tr>
+						<td><span style="font-size: 13px; font-style: italic;" >(No dashboard found)</span></td>
+					</tr>
+					<%
+							}
+						} catch(e){
+							if(isDebug){
+					%>
+					<tr>
+						<td><span style="font-size: 12px; font-style: italic; margin-left: 5px;">${e.toString()}</span></td>
+					</tr>
+					<%
+							}
+						}
+					%>
+               </table>
+              </td>
+            </tr>
+            <tr><td>&nbsp;</td></tr>
+            <%
+				/*
+				 * Plugin compatibility : junit-1.18
+				 */
+            	def junitResultList = it.JUnitTestResult
+            	if(junitResultList != null && junitResultList.size() > 0) {
+            %>
+            <tr>
+             <td style="color: #153643; font-family: Arial, sans-serif;">
+               <table border="0" style="font-size:12px;">
+					<tr><td style="font-size: 16px;"><b><u>Test Summary</u></b></td></tr>
+					<tr>
+						<td>
+							<span style="font-size: 14px; font-weight:bold; font-style: italic;">JUnit Test Result</span>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							<table style="border: 1px solid #cccccc; border-collapse: collapse;" >
+								<tr>
+									<th style="${thStyle}">Package</th>
+									<th style="${thStyle}">Duration</th>
+									<th style="${thStyle}">Pass</th>
+									<th style="${thStyle}">Fail</th>
+									<th style="${thStyle}">Skip</th>
+									<th style="${thStyle}">Total</th>
+									<th style="${thStyle}">Result</th>
+								</tr>
+			<%
+					def packageName, packageDuration, passCount, skipCount, failCount, testTotal, failStyle, skipStyle
+					junitResultList.each{ junitResult ->
+						junitResult.getChildren().each{ packageResult ->
+							packageName = packageResult.getName()
+							packageDuration = packageResult.getDurationString()
+							passCount = packageResult.getPassCount()
+							failCount = packageResult.getFailCount()
+							skipCount = packageResult.getSkipCount()
+							testTotal = passCount + failCount + skipCount
+							if(failCount > 0){
+								failStyle = "background-color: #D50000; font-weight: bold; color: white;"
+							}else{
+								failStyle = ""
+							}
+							if(skipCount > 0){
+								skipStyle = "background-color: #EF6C00; font-weight: bold; color: white;"
+							}else{
+								skipStyle = ""
+							}
+
+			%>
+								<tr style="${trStyle}">
+									<td style="${tdStyle}">${packageName}</td>
+									<td style="${tdStyle}">${packageDuration}</td>
+									<td style="${tdMetricStyle}">${String.format("%,d", passCount)}</td>
+									<td style="${tdMetricStyle}"><span style="${failStyle}">${String.format("%,d", failCount)}</span></td>
+									<td style="${tdMetricStyle}"><span style="${skipStyle}">${String.format("%,d", skipCount)}</span></td>
+									<td style="${tdMetricStyle}">${String.format("%,d", testTotal)}</td>
+									<td style="${tdStyle}"><a href="${rooturl}${build.url}testReport/${packageName}/">link</a></td>
+								</tr>
+			<%
+						} //ENCLOSED packageResult
+					} //ENCLOSED jUnitResultList
+			%>
+						</table>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							<span style="font-size: 14px; font-weight:bold; font-style: italic;">Trend</span>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							<img src="${rooturl}${project.url}test/trend" /> <!-- ${build}testReport/history/countGraph/png -->
+						</td>
+					</tr>
+            	</table>
+            	</td>
+            </tr>
+            <tr><td>&nbsp;</td></tr>
+            <%
+            	} //ENCLOSED JUnitTestResult
+            %>
+            <%
+				def nexusURLs = []
+				def mvnMatcher
+				def gradleMatcher
+				def mvnPattern = ~/.*Uploading: (.*)/
+				def gradlePattern = ~/.*Uploading: (.*) to repository remote at (.*)/
+				build.logFile.eachLine{ line ->
+					def nexusURL = ""
+					gradleMatcher = gradlePattern.matcher(line)
+					if(gradleMatcher.matches()){
+						nexusURL = gradleMatcher.group(2) + gradleMatcher.group(1)
+					}else{
+						mvnMatcher = mvnPattern.matcher(line)
+						if(mvnMatcher.matches()){
+							nexusURL = mvnMatcher.group(1)
+						}
+					}
+					if(nexusURL != "" && !nexusURL.endsWith("maven-metadata.xml")){
+						nexusURLs << nexusURL
+					}
+				}
+				if(nexusURLs != null && nexusURLs.size() > 0){
+            %>
+            <tr>
+             <td style="color: #153643; font-family: Arial, sans-serif;">
+               <table border="0" style="font-size:12px;">
+					<tr><td style="font-size: 16px;"><b><u>Build Artifacts</u></b></td></tr>
+					<tr>
+						<td>
+							<span style="font-size: 14px; font-weight:bold; font-style: italic;">Nexus Deployed</span>
+						</td>
+					</tr>
+					<tr>
+						<td>
+							<table style="border: 1px solid #cccccc; border-collapse: collapse;" >
+								<tr>
+									<th style="${thStyle}">Artifact</th>
+									<th style="${thStyle}">Link</th>
+								</tr>
+            <%
+        			def artifactName
+        			nexusURLs.each { nexusURL ->
+        				artifactName = nexusURL.substring(nexusURL.lastIndexOf('/')+1)
+            %>
+								<tr style="${trStyle}">
+									<td style="${tdStyle}">${artifactName}</td>
+									<td style ="${tdStyle}"><a href="${nexusURL}" target="_blank">link</a></td>
+								</tr>
+            <%
+        			} //ENCLOSED nexusURLs loop
+            %>
+            				</table>
+						</td>
+					</tr>
+            	</table>
+            	</td>
+            </tr>
+            <tr><td>&nbsp;</td></tr>
+            <%
+        		} //ENCLOSED nexusURLs
+            %>
+           </table>
+          </td>
+         </tr>
+         <tr>
+          <td bgcolor="#ee4c50" style="padding: 30px 30px 30px 30px;">
+           <table border="0" cellpadding="0" cellspacing="0" width="100%">
+            <tr>
+            <td style="color: #ffffff; font-family: Arial, sans-serif; font-size: 14px;">
+              
+            </td>
+           </tr>
+          </table>
+          </td>
+         </tr>
+        </table>
+      </td>
+    </tr>
+  </table>
+  <style>
+    table#tblSonarStat {
+      width:700px;
+    }
+
+    #tblSonarStat th, #tblSonarStat td {
+      padding: 5px;
+      text-align: left;
+    }
+
+    #tblSonarStat th {
+      border: 1px solid #cccccc;
+    }
+
+    table#tblSonarStat, #tblSonarStat td {
+      border: 1px solid #cccccc;
+      border-collapse: collapse;
+    }
+    table#tblSonarStat tr:nth-child(even) {
+      background-color: #e0eaf1;
+    }
+    table#tblSonarStat tr:nth-child(odd) {
+      background-color:#fff;
+    }
+    table#tblSonarStat th  {
+      background-color: #A9D0F5;
+      color: black;
+    } 
+  </style>
+</body>
+</html>
+<%
+	}catch(Exception e){
+		if(isDebug){
+			println e
+		}
+	}
+%>
