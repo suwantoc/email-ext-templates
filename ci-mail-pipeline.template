@@ -851,7 +851,6 @@
 					</tr>
 			<%
 				}//ENCLOSED nexusURLs
-				def g3JazzURL = 'https://g3softwaredeploy.it.global.hsbc:9097/jazz/web/projects/#action=com.ibm.team.workitem.viewWorkItem&id='
 				def g3PackageWIs = []
 				def g3PackagePattern = ~/.*Package WI created ... (.+)/
 				build.logFile.eachLine{ line ->
